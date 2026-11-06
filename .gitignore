@@ -1,0 +1,15 @@
+*.log
+*.out
+*.err
+*.pid
+*.key
+*.pem
+*.env
+.env.*
+*.conf.local
+
+# Slurm and database secrets
+slurmdbd.conf
+munge.key
+id_rsa
+id_ed25519
