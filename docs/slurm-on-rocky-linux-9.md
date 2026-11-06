@@ -1,167 +1,639 @@
- 
-# Slurm Workload Manager on Rocky Linux 9: Complete Hands-on HPC Lab
-
-## 1. Introduction
-
-Slurm (Simple Linux Utility for Resource Management) is an open-source workload manager and job scheduler widely used in High Performance Computing (HPC) environments.
-
-It manages compute resources, schedules workloads, allocates CPUs and memory, executes jobs across compute nodes, and tracks job utilization.
-
-In this hands-on lab, we build a two-node Slurm cluster using Rocky Linux 9 and explore practical job scheduling, resource management, accounting, priorities, dependencies, and job arrays.
-
-### What we will learn
-
-1. Slurm architecture and components
-2. Slurm installation and configuration overview
-3. MUNGE authentication
-4. Slurm controller and compute node
-5. Partitions and resource management
-6. Interactive jobs using `srun`
-7. Batch jobs using `sbatch`
-8. Job monitoring using `squeue`
-9. CPU and memory allocation
-10. Job priorities using `sprio`
-11. Accounting using SlurmDBD and MariaDB
-12. Job dependencies
-13. Job arrays
-14. Troubleshooting and validation
-
+---
+subtitle: Instructor-led deployment, configuration, GPU scheduling, and
+  monitoring guide
+title: Slurm on Rocky Linux 9 for AI and HPC Workloads
 ---
 
-## 2. Lab architecture
+```{=html}
+<style>
+:root {
+  --slurm-blue: #174ea6;
+  --slurm-light: #eef5ff;
+  --slurm-border: #d7e1ef;
+  --slurm-text: #243247;
+  --slurm-muted: #617086;
+  --slurm-green: #eaf7ef;
+  --slurm-orange: #fff4e5;
+}
+.slurm-guide {
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--slurm-text);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.72;
+}
+.slurm-guide h1, .slurm-guide h2, .slurm-guide h3 {
+  line-height: 1.25;
+  color: #17365f;
+}
+.slurm-guide h1 {
+  padding: 1.1rem 1.3rem;
+  border-radius: 14px;
+  background: linear-gradient(120deg, #eaf2ff, #f7faff);
+  border-left: 7px solid var(--slurm-blue);
+}
+.slurm-guide h2 {
+  margin-top: 2.2rem;
+  padding-bottom: .45rem;
+  border-bottom: 2px solid var(--slurm-border);
+}
+.slurm-guide h3 { margin-top: 1.5rem; }
+.slurm-guide table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0 1.5rem;
+  display: block;
+  overflow-x: auto;
+}
+.slurm-guide th, .slurm-guide td {
+  border: 1px solid var(--slurm-border);
+  padding: .65rem .8rem;
+  text-align: left;
+  vertical-align: top;
+}
+.slurm-guide th { background: var(--slurm-light); }
+.slurm-guide pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 10px;
+  background: #101827;
+  color: #e8eef8;
+  font-size: .9rem;
+  line-height: 1.55;
+}
+.slurm-guide code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+.slurm-guide :not(pre) > code {
+  background: #edf2f8;
+  padding: .12rem .35rem;
+  border-radius: 5px;
+}
+.slurm-callout {
+  margin: 1rem 0;
+  padding: 1rem 1.2rem;
+  border-radius: 10px;
+  background: var(--slurm-light);
+  border-left: 5px solid var(--slurm-blue);
+}
+.slurm-warning {
+  background: var(--slurm-orange);
+  border-left-color: #d97706;
+}
+.slurm-success {
+  background: var(--slurm-green);
+  border-left-color: #16834a;
+}
+.slurm-diagram {
+  border: 1px solid var(--slurm-border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1.2rem 0;
+  background: #fbfdff;
+  text-align: center;
+}
+.slurm-node {
+  display: inline-block;
+  min-width: 180px;
+  margin: .35rem;
+  padding: .8rem 1rem;
+  border: 1px solid #b9cbe3;
+  border-radius: 9px;
+  background: white;
+}
+.slurm-controller { background: #eaf2ff; border-color: #7da6e5; }
+.slurm-compute { background: #eaf7ef; border-color: #8bc6a0; }
+.slurm-monitor { background: #fff4e5; border-color: #e8bd78; }
+.slurm-arrow { color: var(--slurm-muted); font-weight: 700; padding: .25rem; }
+@media (max-width: 700px) {
+  .slurm-guide { font-size: 15px; }
+  .slurm-node { display: block; width: auto; }
+}
+</style>
+```
+::: slurm-guide
+# Slurm on Rocky Linux 9 for AI and HPC Workloads
 
-### Cluster topology
+**Complete instructor guide:** architecture, installation planning,
+configuration, CPU jobs, NVIDIA GPU jobs, accounting, Prometheus,
+Grafana, troubleshooting, and production-readiness.
 
-| Component | Hostname | IP address | Role |
-|---|---|---|---|
-| Controller | master | 192.168.232.20 | Slurm controller and accounting |
-| Compute node | node01 | 192.168.232.21 | Executes HPC workloads |
+::: slurm-callout
+`<strong>`{=html}Lab scope`</strong>`{=html}`<br>`{=html} The reference architecture in Sections 2–3 describes a four-node example cluster: one controller/management node
+and three compute nodes. Section 7.2 provides the separate, validated two-node lab walkthrough. It uses Rocky Linux 9, Slurm, Munge, MariaDB,
+NVIDIA GPU resources, Prometheus, and Grafana. Replace example
+hostnames, IP addresses, resource counts, versions, and credentials with
+values validated for your environment.
+:::
 
-### Environment
+## 1. What is Slurm?
 
-| Component | Version / configuration |
-|---|---|
-| Operating system | Rocky Linux 9.8 |
-| Slurm | 22.05.11 |
-| MUNGE | Authentication service |
-| Database | MariaDB 10.5.29 |
-| SlurmDBD | Accounting daemon |
-| Partition | compute |
-| Compute CPUs | 4 |
-| Compute memory | Approximately 15.6 GiB |
-| Cluster name | hpc-lab |
+Slurm (Simple Linux Utility for Resource Management) is an open-source
+workload manager and job scheduler used by High Performance Computing
+(HPC), AI/ML infrastructure, scientific computing, simulation, and GPU
+clusters.
 
-### Architecture diagram
+Slurm manages shared compute resources and decides when and where jobs
+run. Users submit work rather than manually choosing a compute server.
 
-```text
-                   HPC USER
-                      |
-                      |
-                 Submit Jobs
-                      |
-             sbatch / srun / squeue
-                      |
-                      v
-       +-----------------------------+
-       |         MASTER              |
-       |       192.168.232.20        |
-       |                             |
-       |       slurmctld             |
-       |       slurmdbd              |
-       |       MariaDB               |
-       |       MUNGE                 |
-       +-----------------------------+
-                      |
-             Slurm scheduling
-                      |
-             MUNGE authentication
-                      |
-                      v
-       +-----------------------------+
-       |         NODE01              |
-       |       192.168.232.21        |
-       |                             |
-       |       slurmd                |
-       |       MUNGE                 |
-       |                             |
-       |       4 CPUs                |
-       |       15.6 GiB RAM          |
-       +-----------------------------+
-                      |
-                      v
-                HPC WORKLOADS
+Typical responsibilities:
+
+1.  Job submission and queue management.
+2.  CPU, memory, GPU, and other resource allocation.
+3.  Scheduling based on availability, priority, partitions, accounts,
+    and policy.
+4.  Starting and monitoring tasks on compute nodes.
+5.  Job completion, exit status, and usage accounting.
+6.  Fair-share, Quality of Service (QOS), and resource limits.
+
+Slurm is not Kubernetes. Kubernetes primarily orchestrates long-running
+containerized applications and services. Slurm is designed around
+scheduled jobs and resource allocations. Both can coexist in an AI
+platform.
+
+## 2. Slurm architecture and components
+
+::: slurm-diagram
+::: slurm-node
+`<strong>`{=html}Users / Data
+Scientists`</strong>`{=html}`<br>`{=html}`<small>`{=html}SSH · sbatch ·
+srun · squeue · sinfo`</small>`{=html}
+:::
+
+::: slurm-arrow
+↓
+:::
+
+::: slurm-node
+`<strong>`{=html}Login
+node`</strong>`{=html}`<br>`{=html}`<small>`{=html}CLI tools · modules ·
+job submission`</small>`{=html}
+:::
+
+::: slurm-arrow
+↓
+:::
+
+::: {.slurm-node .slurm-controller}
+`<strong>`{=html}Controller:
+slurmctld`</strong>`{=html}`<br>`{=html}`<small>`{=html}Queue ·
+scheduler · node state · allocation`</small>`{=html}
+:::
+
+::: slurm-arrow
+↔
+:::
+
+::: {.slurm-node .slurm-controller}
+`<strong>`{=html}slurmdbd +
+MariaDB`</strong>`{=html}`<br>`{=html}`<small>`{=html}Accounting · users
+· accounts · QOS · history`</small>`{=html}
+:::
+
+::: slurm-arrow
+↓
+:::
+
+<div>
+
+    <span class="slurm-node slurm-compute"><strong>Worker 01</strong><br><small>slurmd · CPU/RAM</small></span>
+    <span class="slurm-node slurm-compute"><strong>Worker 02</strong><br><small>slurmd · CPU/RAM/GPU</small></span>
+    <span class="slurm-node slurm-compute"><strong>Worker 03</strong><br><small>slurmd · CPU/RAM/GPU</small></span>
+
+</div>
+
+::: slurm-arrow
+Metrics ↓
+:::
+
+::: {.slurm-node .slurm-monitor}
+`<strong>`{=html}Prometheus →
+Grafana`</strong>`{=html}`<br>`{=html}`<small>`{=html}OS · scheduler ·
+job · GPU telemetry`</small>`{=html}
+:::
+:::
+
+  -----------------------------------------------------------------------
+  Component                           Responsibility
+  ----------------------------------- -----------------------------------
+  Login node                          Users run Slurm client commands and
+                                      prepare jobs
+
+  `slurmctld`                         Central controller; queue,
+                                      scheduling, node state, resource
+                                      allocation
+
+  `slurmd`                            Runs on every compute node;
+                                      launches and monitors job tasks
+
+  `slurmdbd`                          Accounting service between Slurm
+                                      and the database
+
+  MariaDB/MySQL                       Stores historical accounting data
+                                      and associations
+
+  `slurmrestd`                        Optional REST API
+
+  Prometheus                          Scrapes and stores metrics
+
+  Grafana                             Dashboards and visualization
+  -----------------------------------------------------------------------
+
+The controller makes scheduling decisions. The worker daemon executes
+work. Accounting services provide historical records; they are not
+required for basic job execution.
+
+## 3. Example lab infrastructure
+
+  --------------------------------------------------------------------------
+  Hostname                      Example IP Role             Example
+                                                            resources
+  ------------------ --------------------- ---------------- ----------------
+  `slurm-master`           `192.168.10.10` Controller +     8 CPU, 32 GB RAM
+                                           DB + monitoring  
+                                           (lab only)       
+
+  `slurm-worker01`         `192.168.10.11` CPU compute      32 CPU, 128 GB
+                                                            RAM
+
+  `slurm-worker02`         `192.168.10.12` GPU compute      32 CPU, 128 GB
+                                                            RAM, 1 GPU
+
+  `slurm-worker03`         `192.168.10.13` GPU compute      32 CPU, 128 GB
+                                                            RAM, 1 GPU
+  --------------------------------------------------------------------------
+
+For production, separate the login, controller, database, and monitoring
+roles where practical. Consider a backup controller, shared storage,
+redundant networking, and tested recovery procedures.
+
+## 4. End-to-end job workflow
+
+1.  User connects to a login node using SSH.
+2.  User submits a batch script using `sbatch`.
+3.  The Slurm client sends the request to `slurmctld`.
+4.  The job enters the queue.
+5.  The scheduler evaluates partition, priority, resource requests,
+    account/QOS policy, and node availability.
+6.  The controller selects appropriate compute resources.
+7.  The compute node's `slurmd` launches the job.
+8.  The workload executes using its allocated CPU, memory, GPU, and
+    other resources.
+9.  Slurm tracks job state, exit code, and resource usage.
+10. Accounting records are sent through `slurmdbd` to MariaDB when
+    accounting is configured.
+
+  Command      Purpose
+  ------------ --------------------------------------------------
+  `sbatch`     Submit a batch job
+  `srun`       Run a command or job step within an allocation
+  `salloc`     Obtain an interactive allocation
+  `squeue`     View pending and running jobs
+  `sinfo`      View partitions and node states
+  `scancel`    Cancel a job
+  `scontrol`   Inspect and administer Slurm configuration/state
+  `sacct`      Query historical job accounting
+  `sacctmgr`   Manage accounts, users, associations, and QOS
+  `sstat`      View supported statistics for running job steps
+  `sdiag`      Inspect scheduler statistics
+  `sreport`    Generate accounting reports
+
+## 5. Rocky Linux 9 operating-system preparation
+
+Perform the operating-system preparation on all nodes.
+
+### 5.1 Update and install prerequisites
+
+``` bash
+sudo dnf update -y
+
+sudo dnf install -y \
+  epel-release chrony munge munge-libs munge-devel \
+  gcc make pam-devel readline-devel perl openssl-devel \
+  mariadb-server mariadb-devel git wget curl vim \
+  tar bzip2 rsync
 ```
 
----
+Package names and repository availability can vary by Slurm/OpenHPC
+release. Install the Slurm packages from one consistent, supported
+source rather than mixing unrelated repositories.
 
-## 3. Slurm architecture and components
+### 5.2 Set hostnames
 
-Slurm consists of several important components.
+Run the appropriate command on each machine:
 
-| Component | Description | Location |
-|---|---|---|
-| `slurmctld` | Central scheduler and resource manager | Controller |
-| `slurmd` | Executes jobs and manages node resources | Compute node |
-| `slurmdbd` | Collects and provides accounting information | Controller |
-| MUNGE | Authenticates users and Slurm services | All nodes |
-| MariaDB | Stores Slurm accounting information | Controller |
-| `sbatch` | Submits batch jobs | Client |
-| `srun` | Runs interactive or job-step workloads | Client |
-| `squeue` | Displays queued and running jobs | Client |
-| `sacct` | Displays job accounting information | Client |
-| `sinfo` | Displays node and partition information | Client |
+``` bash
+# Controller
+sudo hostnamectl set-hostname slurm-master
 
-### Job execution workflow
+# Compute node 1
+sudo hostnamectl set-hostname slurm-worker01
 
-1. A user submits a job using `sbatch` or `srun`.
-2. `slurmctld` receives the request.
-3. The scheduler checks available resources and job priority.
-4. The scheduler selects an eligible compute node.
-5. `slurmd` launches the workload.
-6. The workload executes on the allocated compute node.
-7. Job state and accounting information are recorded through SlurmDBD.
+# Compute node 2
+sudo hostnamectl set-hostname slurm-worker02
 
----
-
-## 4. MUNGE authentication
-
-MUNGE provides authentication between Slurm components.
-
-It allows services on different cluster nodes to verify credentials securely.
-
-Check MUNGE:
-
-```bash
-systemctl status munge
+# Compute node 3
+sudo hostnamectl set-hostname slurm-worker03
 ```
 
-Test credential generation:
+### 5.3 Configure name resolution
 
-```bash
+Add to `/etc/hosts` on all nodes:
+
+``` ini
+192.168.10.10 slurm-master
+192.168.10.11 slurm-worker01
+192.168.10.12 slurm-worker02
+192.168.10.13 slurm-worker03
+```
+
+Test:
+
+``` bash
+getent hosts slurm-master
+getent hosts slurm-worker01
+getent hosts slurm-worker02
+getent hosts slurm-worker03
+```
+
+### 5.4 Synchronize time
+
+On all nodes:
+
+``` bash
+sudo systemctl enable --now chronyd
+chronyc tracking
+chronyc sources -v
+```
+
+Configure all nodes to use consistent, trusted NTP sources.
+
+### 5.5 Create consistent service accounts
+
+Create the Slurm account with the same numeric UID and GID on all nodes.
+Confirm the chosen IDs are unused first.
+
+``` bash
+sudo groupadd -g 991 slurm
+
+sudo useradd -u 991 -g slurm -M \
+  -s /sbin/nologin slurm
+
+id slurm
+```
+
+The `munge` service account must also be consistent and correctly
+configured on all nodes.
+
+## 6. Munge authentication
+
+Munge provides credential-based authentication between Slurm components.
+
+Requirements:
+
+-   Munge installed on every cluster node.
+-   The same protected `munge.key` installed on every node.
+-   Correct ownership and permissions.
+-   Munge service running before Slurm daemons.
+
+### 6.1 Generate the key on the controller
+
+``` bash
+sudo /usr/sbin/create-munge-key
+sudo ls -l /etc/munge/munge.key
+```
+
+Generate the key once. Do not independently generate a different key on
+each worker.
+
+### 6.2 Distribute securely
+
+Transfer the key using a secure administrator-controlled method.
+Example:
+
+``` bash
+sudo scp /etc/munge/munge.key \
+  root@slurm-worker01:/etc/munge/munge.key
+sudo scp /etc/munge/munge.key \
+  root@slurm-worker02:/etc/munge/munge.key
+sudo scp /etc/munge/munge.key \
+  root@slurm-worker03:/etc/munge/munge.key
+```
+
+On every node:
+
+``` bash
+sudo chown munge:munge /etc/munge/munge.key
+sudo chmod 0400 /etc/munge/munge.key
+sudo systemctl enable --now munge
+sudo systemctl status munge
+```
+
+### 6.3 Test Munge
+
+On each node:
+
+``` bash
 munge -n | unmunge
 ```
 
-Test authentication across nodes:
+Test across nodes:
+
+``` bash
+munge -n | ssh slurm-worker01 unmunge
+```
+
+Repeat for each worker. Successful decoding should report
+`STATUS: Success (0)`.
+
+## 7. Install Slurm consistently
+
+Choose one deployment method and pin the Slurm version.
+
+**Option A --- OpenHPC packages:** Use the OpenHPC release that
+explicitly supports your Rocky/EL9 environment and follow its
+installation procedure.
+
+**Option B --- Build Slurm RPMs:** Download a selected official Slurm
+release, build RPMs with the required plugins and dependencies, publish
+them in an internal repository, and install the same build on all
+applicable nodes.
+
+Official references:
+
+-   Slurm documentation: https://slurm.schedmd.com/documentation.html
+-   Slurm quick start: https://slurm.schedmd.com/quickstart_admin.html
+-   OpenHPC: https://openhpc.community/
+
+Required component placement:
+
+  Component/package                       Controller   Compute nodes     Login node
+  ----------------------- -------------------------- --------------- --------------
+  Slurm client commands                          Yes         Usually            Yes
+  `slurmctld`                                    Yes              No             No
+  `slurmd`                                        No             Yes             No
+  `slurmdbd`                Yes or dedicated DB host              No             No
+  Munge                                          Yes             Yes            Yes
+  GPU GRES/NVML support                  If GPU host       GPU nodes   Not normally
+
+Do not assume the standard Rocky Linux repositories contain the Slurm
+release you need. Validate package availability and dependencies before
+deployment.
+
+### 7.1 Create runtime directories
+
+Controller:
+
+``` bash
+sudo mkdir -p /etc/slurm /var/log/slurm \
+  /var/spool/slurmctld
+sudo chown slurm:slurm /var/log/slurm /var/spool/slurmctld
+```
+
+Compute nodes:
+
+``` bash
+sudo mkdir -p /etc/slurm /var/log/slurm \
+  /var/spool/slurmd
+sudo chown slurm:slurm /var/log/slurm /var/spool/slurmd
+```
+
+
+### 7.2 Reproducible two-node installation (Rocky Linux 9.8 lab)
+
+The following walkthrough documents the working two-node CPU lab used
+for the practical exercises in this guide. It is deliberately separate
+from the four-node example above. Use one topology consistently; do not
+combine the hostnames or node definitions from the two examples.
+
+| Host | Address | Role | Slurm daemon |
+|:--|:--|:--|:--|
+| `master` | `192.168.232.20` | Controller, login, SlurmDBD, MariaDB | `slurmctld`, `slurmdbd` |
+| `node01` | `192.168.232.21` | CPU compute node (4 CPUs, 15956 MiB configured RAM) | `slurmd` |
+
+Validated lab software: Rocky Linux 9.8 and Slurm `22.05.11-2.el9`.
+Package availability depends on enabled repositories. The commands below
+assume that the repository used by this lab provides these EL9 package
+names. Check the available version before installing, and install the
+same Slurm build on both nodes.
+
+#### Step 1 — Prepare both nodes
+
+Run on `master` and `node01`:
+
+```bash
+sudo dnf update -y
+sudo dnf install -y chrony munge munge-libs slurm
+sudo systemctl enable --now chronyd
+
+# Confirm host resolution and time synchronization
+getent hosts master node01
+chronyc tracking
+```
+
+Ensure `/etc/hosts` contains the same mappings on both hosts (or use
+working DNS):
+
+```text
+192.168.232.20 master
+192.168.232.21 node01
+```
+
+Check repository versions before installing role-specific packages:
+
+```bash
+dnf list --showduplicates slurm slurm-slurmctld slurm-slurmd slurm-slurmdbd
+```
+
+#### Step 2 — Install the Slurm role packages
+
+On `master`:
+
+```bash
+sudo dnf install -y slurm-slurmctld slurm-slurmdbd
+```
+
+On `node01`:
+
+```bash
+sudo dnf install -y slurm-slurmd
+```
+
+If the package manager proposes different Slurm versions across nodes,
+stop and resolve the repository/version mismatch before starting any
+Slurm daemon. Verify the installed packages:
+
+```bash
+rpm -qa | grep -E '^(slurm|munge)' | sort
+slurmctld -V 2>/dev/null || srun --version
+```
+
+The RPMs normally create the `slurm` service account. Confirm it exists
+on both hosts and has a consistent UID/GID; do not create a second
+account blindly:
+
+```bash
+getent passwd slurm
+getent group slurm
+```
+
+#### Step 3 — Configure MUNGE authentication
+
+MUNGE must use the same key on every node. On `master`, generate the
+key once if it does not already exist:
+
+```bash
+sudo /usr/sbin/create-munge-key
+sudo systemctl enable --now munge
+```
+
+Copy the key securely to `node01` using an administrator-controlled
+channel. Do not place the key in Git, a tutorial repository, or a shell
+transcript:
+
+```bash
+sudo scp /etc/munge/munge.key root@node01:/etc/munge/munge.key
+```
+
+On both nodes:
+
+```bash
+sudo chown munge:munge /etc/munge/munge.key
+sudo chmod 0400 /etc/munge/munge.key
+sudo systemctl enable --now munge
+sudo systemctl status munge --no-pager
+munge -n | unmunge
+```
+
+From `master`, test cross-node decoding:
 
 ```bash
 munge -n | ssh node01 unmunge
 ```
 
-The cross-node test should successfully decode the credential.
+The decoded credential should report `STATUS: Success (0)`. Resolve
+MUNGE, time-sync, DNS, or SSH problems before proceeding.
 
-Important: MUNGE must use a consistent shared key across all cluster nodes. Protect the key and restrict its permissions.
+#### Step 4 — Create Slurm runtime directories
 
----
-
-## 5. Slurm configuration
-
-The primary configuration file is:
+On `master`:
 
 ```bash
-/etc/slurm/slurm.conf
+sudo install -d -o slurm -g slurm -m 0755 /etc/slurm /var/log/slurm
+sudo install -d -o slurm -g slurm -m 0755 /var/spool/slurmctld
 ```
 
-Important configuration parameters:
+On `node01`:
+
+```bash
+sudo install -d -o slurm -g slurm -m 0755 /etc/slurm /var/log/slurm
+sudo install -d -o slurm -g slurm -m 0755 /var/spool/slurmd
+```
+
+#### Step 5 — Create the shared Slurm configuration
+
+Create `/etc/slurm/slurm.conf` on `master`:
 
 ```ini
 ClusterName=hpc-lab
@@ -181,7 +653,6 @@ SlurmctldLogFile=/var/log/slurm/slurmctld.log
 SlurmdLogFile=/var/log/slurm/slurmd.log
 
 SchedulerType=sched/backfill
-
 SelectType=select/cons_tres
 SelectTypeParameters=CR_Core_Memory
 
@@ -204,654 +675,1335 @@ PartitionName=compute Nodes=node01 Default=YES \
     State=UP
 ```
 
-Note: This is a representative configuration from the lab. Paths, users, node resources, and authentication settings must match the actual installation.
+This is the configuration used for the CPU-only training cluster. The
+`CPUs` and `RealMemory` values must match resources Slurm can actually
+use on `node01`; leave memory for the operating system. GPU GRES is not
+configured in this two-node lab.
 
-Validate the running configuration:
+Copy the exact same file to the compute node and verify its checksum:
 
 ```bash
-scontrol show config
-scontrol show node node01
-scontrol show partition compute
-scontrol ping
+sudo scp /etc/slurm/slurm.conf root@node01:/etc/slurm/slurm.conf
+sha256sum /etc/slurm/slurm.conf
+ssh root@node01 sha256sum /etc/slurm/slurm.conf
 ```
 
----
+#### Step 6 — Configure MariaDB and SlurmDBD on the controller
 
-## 6. Understanding Slurm partitions
+On `master`:
 
-A partition is a logical grouping of compute nodes and scheduling policies.
+```bash
+sudo dnf install -y mariadb-server
+sudo systemctl enable --now mariadb
+sudo systemctl status mariadb --no-pager
+```
 
-Our cluster contains one partition:
+Create the accounting database and service account. Generate a unique
+secret locally and use the same value in MariaDB and
+`/etc/slurm/slurmdbd.conf`; never commit or publish it:
+
+```sql
+CREATE DATABASE slurm_acct_db;
+CREATE USER 'slurm'@'localhost' IDENTIFIED BY 'REPLACE_WITH_A_RANDOM_SECRET';
+GRANT ALL PRIVILEGES ON slurm_acct_db.* TO 'slurm'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Create `/etc/slurm/slurmdbd.conf` on `master` (replace the password
+locally; do not paste it into documentation):
 
 ```ini
-PartitionName=compute Nodes=node01 Default=YES State=UP
+DbdHost=master
+DbdPort=6819
+SlurmUser=slurm
+AuthType=auth/munge
+DebugLevel=info
+LogFile=/var/log/slurm/slurmdbd.log
+
+StorageType=accounting_storage/mysql
+StorageHost=localhost
+StoragePort=3306
+StorageUser=slurm
+StoragePass=REPLACE_WITH_THE_SAME_RANDOM_SECRET
+StorageLoc=slurm_acct_db
 ```
 
-View partitions:
+Protect the file and prepare its log:
 
 ```bash
-sinfo
+sudo chown slurm:slurm /etc/slurm/slurmdbd.conf
+sudo chmod 0600 /etc/slurm/slurmdbd.conf
+sudo touch /var/log/slurm/slurmdbd.log
+sudo chown slurm:slurm /var/log/slurm/slurmdbd.log
 ```
 
-Detailed partition information:
+#### Step 7 — Configure the firewall
+
+On `master`, permit Slurm controller and accounting traffic. Permit
+MariaDB only if required by the actual database topology; this example
+uses local MariaDB, so do not expose port 3306 unnecessarily.
 
 ```bash
-scontrol show partition compute
+sudo firewall-cmd --permanent --add-port=6817/tcp
+sudo firewall-cmd --permanent --add-port=6819/tcp
+sudo firewall-cmd --reload
 ```
 
-A partition can define limits such as:
-
-- Maximum execution time
-- Maximum nodes per job
-- Maximum CPUs per node
-- Allowed compute nodes
-- Default scheduling behavior
-
-Example: requesting two hours when the partition allows only one hour results in the job being ineligible due to its time limit.
-
----
-
-## 7. Interactive jobs using srun
-
-` srun ` is used to execute interactive commands or job steps through Slurm.
-
-Example:
+On `node01`:
 
 ```bash
-srun -p compute -N 1 -n 1 hostname
+sudo firewall-cmd --permanent --add-port=6818/tcp
+sudo firewall-cmd --reload
 ```
 
-Expected:
+Restrict these services to trusted cluster networks in a production
+firewall policy. Confirm SELinux labels and policy rather than disabling
+SELinux as a troubleshooting shortcut.
 
-```text
-node01
-```
+#### Step 8 — Start services in order
 
-Run four tasks:
+On `master`, start MUNGE and the accounting database service before the
+controller:
 
 ```bash
-srun -p compute -N 1 -n 4 \
-  bash -c 'echo "Task $SLURM_PROCID running on $(hostname)"'
+sudo systemctl enable --now munge mariadb
+sudo systemctl enable --now slurmdbd
+sudo systemctl status slurmdbd --no-pager
+sudo journalctl -u slurmdbd -n 50 --no-pager
 ```
 
-This demonstrates how Slurm allocates tasks to a compute node.
-
----
-
-## 8. Batch jobs using sbatch
-
-Batch jobs are submitted as scripts and executed when resources become available.
-
-Create a script:
+Register the cluster in accounting (run once):
 
 ```bash
-vi hello-hpc.sh
+sudo sacctmgr -i add cluster hpc-lab
+sudo sacctmgr list cluster
 ```
 
-Script:
+Then start the controller:
 
 ```bash
+sudo systemctl enable --now slurmctld
+sudo systemctl status slurmctld --no-pager
+```
+
+On `node01`:
+
+```bash
+sudo systemctl enable --now munge
+sudo systemctl enable --now slurmd
+sudo systemctl status slurmd --no-pager
+```
+
+#### Step 9 — Validate registration and submit a test job
+
+From `master`:
+
+```bash
+scontrol ping
+sinfo -N -l
+scontrol show node node01
+srun --partition=compute --nodes=1 --ntasks=1 /bin/hostname
+```
+
+Expected hostname from the test job: `node01`. Submit a batch job:
+
+```bash
+cat > hello-slurm.sh <<'EOF'
 #!/bin/bash
-
-#SBATCH --job-name=hello-hpc
+#SBATCH --job-name=hello-slurm
 #SBATCH --partition=compute
-#SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
+#SBATCH --mem=512M
 #SBATCH --time=00:02:00
 #SBATCH --output=hello-%j.out
 
-echo "Hello HPC!"
-echo "Job ID: $SLURM_JOB_ID"
-echo "Running on: $(hostname)"
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Host: $(hostname)"
 echo "Started: $(date)"
+sleep 5
+echo "Completed: $(date)"
+sleep 5
+echo "Completed: $(date)"
+EOF
 
-sleep 10
-
-echo "Job completed: $(date)"
-```
-
-Submit:
-
-```bash
-sbatch hello-hpc.sh
-```
-
-Check status:
-
-```bash
+sbatch hello-slurm.sh
 squeue
 ```
 
-View output:
+After completion, inspect the output and accounting:
 
 ```bash
 cat hello-JOBID.out
+sacct -j JOBID --format=JobID,JobName,Partition,State,Elapsed,AllocCPUS,ExitCode
 ```
 
-Replace `JOBID` with the actual job ID.
+Replace `JOBID` with the ID returned by `sbatch`. If accounting is not
+ready yet, basic `srun`/`sbatch` scheduling can still be tested while
+SlurmDBD is diagnosed; accounting commands require the accounting
+service and database to be healthy.
 
----
-
-## 9. Job monitoring
-
-Important Slurm monitoring commands:
-
-| Command | Purpose |
-|---|---|
-| `squeue` | Show queued and running jobs |
-| `sinfo` | Show nodes and partitions |
-| `scontrol show job JOBID` | Detailed job information |
-| `scontrol show node node01` | Detailed node information |
-| `scancel JOBID` | Cancel a job |
-| `sacct` | Show historical job accounting |
-| `sprio` | Display job priority components |
-| `sreport` | Generate cluster utilization reports |
-
-Examples:
+#### Step 10 — Useful service and troubleshooting commands
 
 ```bash
-squeue -u hpcuser
+systemctl status munge slurmctld slurmdbd
+# Run on node01:
+systemctl status munge slurmd
 
-sinfo -N -l
+journalctl -u munge -n 100 --no-pager
+journalctl -u slurmctld -n 100 --no-pager
+journalctl -u slurmdbd -n 100 --no-pager
+# Run on node01:
+journalctl -u slurmd -n 100 --no-pager
 
-scontrol show job 30
-
-scancel 30
+scontrol show config
+scontrol show node node01
+sinfo
+squeue
+sacctmgr show cluster
+sacct
 ```
 
----
+Common first checks are: matching Slurm versions and `slurm.conf`,
+consistent MUNGE key and clock synchronization, correct service-account
+ownership of spool/log directories, DNS/`/etc/hosts`, firewall access,
+and the daemon-specific journal.
 
-## 10. CPU and memory resource allocation
+::: slurm-callout
+`<strong>`{=html}Lab-specific note`</strong>`{=html}`<br>`{=html}The
+installation above matches the two-node lab used for the completed
+hands-on exercises: `master` (`192.168.232.20`) and `node01`
+(`192.168.232.21`), Slurm `22.05.11-2.el9`, partition `compute`, and
+four configured CPUs on the compute node. The four-node CPU/GPU example
+in Sections 3 and 8–10 is a separate reference architecture, not the
+configuration to copy into this two-node lab.
+:::
 
-Slurm can allocate CPU and memory resources to individual jobs.
+## 8. Configure the Slurm controller
 
-Example:
+Create `/etc/slurm/slurm.conf` on the controller. This is an
+illustrative starting point; validate every parameter against the exact
+installed Slurm release and plugins.
 
-```bash
-sbatch \
-  --partition=compute \
-  --ntasks=1 \
-  --cpus-per-task=2 \
-  --mem=2G \
-  --time=00:02:00 \
-  resource-test.sh
-```
+``` ini
+ClusterName=rocky-ai-hpc
+SlurmctldHost=slurm-master
 
-A resource allocation test script:
+AuthType=auth/munge
+CryptoType=crypto/munge
+SlurmUser=slurm
 
-```bash
-#!/bin/bash
+SlurmctldLogFile=/var/log/slurm/slurmctld.log
+SlurmdLogFile=/var/log/slurm/slurmd.log
 
-echo "Job ID: $SLURM_JOB_ID"
-echo "Allocated CPUs: $SLURM_CPUS_PER_TASK"
-echo "Memory requested: 2 GB"
-echo "Node: $(hostname)"
+StateSaveLocation=/var/spool/slurmctld
+SlurmdSpoolDir=/var/spool/slurmd
 
-sleep 30
-```
+SchedulerType=sched/backfill
+SelectType=select/cons_tres
+SelectTypeParameters=CR_Core_Memory
 
-Inspect resource allocation:
+ProctrackType=proctrack/cgroup
+TaskPlugin=task/cgroup,task/affinity
+JobAcctGatherType=jobacct_gather/cgroup
 
-```bash
-scontrol show job JOBID
-```
+GresTypes=gpu
 
-Useful fields include:
-
-- `NumCPUs`
-- `ReqTRES`
-- `AllocTRES`
-- `ReqMem`
-- `AllocCPUS`
-
-Example from the lab:
-
-```text
-AllocCPUS=1
-AllocMem=2048
-AllocTRES=cpu=1,mem=2G
-```
-
-This demonstrates that Slurm allocated one CPU and 2 GiB of memory to the job.
-
-Note: Requested memory and actual memory consumption are different measurements.
-
----
-
-## 11. Job priorities using multifactor scheduling
-
-Slurm supports job prioritization.
-
-Our lab uses:
-
-```ini
-PriorityType=priority/multifactor
-
-PriorityWeightAge=1000
-PriorityWeightFairShare=10000
-PriorityWeightJobSize=1000
-PriorityWeightPartition=1000
-PriorityWeightQOS=1000
-```
-
-The multifactor plugin calculates priority using configured factors.
-
-Inspect priorities:
-
-```bash
-sprio -u hpcuser
-```
-
-Submit a normal-priority job:
-
-```bash
-sbatch --nice=0 normal-job.sh
-```
-
-Submit a lower-priority job:
-
-```bash
-sbatch --nice=1000 lower-priority-job.sh
-```
-
-In our experiment, the two pending jobs differed by 1000 priority points.
-
-This demonstrated how the `--nice` value influences job priority.
-
-Other useful concepts:
-
-- Age
-- FairShare
-- Job size
-- Partition
-- Quality of Service (QOS)
-- TRES-based priority
-
----
-
-## 12. Slurm accounting using SlurmDBD and MariaDB
-
-SlurmDBD provides accounting services for Slurm.
-
-MariaDB stores accounting information.
-
-Architecture:
-
-```text
-Slurm jobs
-    |
-    v
-slurmctld
-    |
-    v
-slurmdbd
-    |
-    v
-MariaDB
-    |
-    v
-slurm_acct_db
-```
-
-Important configuration:
-
-```ini
 AccountingStorageType=accounting_storage/slurmdbd
-AccountingStorageHost=master
+AccountingStorageHost=slurm-master
+AccountingStoragePort=6819
+
+NodeName=slurm-worker01 CPUs=32 RealMemory=120000 State=UNKNOWN
+NodeName=slurm-worker02 CPUs=32 RealMemory=120000 Gres=gpu:1 State=UNKNOWN
+NodeName=slurm-worker03 CPUs=32 RealMemory=120000 Gres=gpu:1 State=UNKNOWN
+
+PartitionName=cpu Nodes=slurm-worker[01-03] Default=YES State=UP
+PartitionName=gpu Nodes=slurm-worker[02-03] State=UP
+
+ReturnToService=2
+SlurmctldTimeout=120
+SlurmdTimeout=300
+```
+
+Configuration notes:
+
+-   Replace `CPUs=32` with the actual Slurm-visible CPU count on each
+    node.
+-   `RealMemory=120000` is an example in MiB. Leave sufficient memory
+    for the OS and system services.
+-   `Gres=gpu:1` assumes one schedulable GPU per GPU worker.
+-   Use matching node definitions and resource information on all nodes.
+-   Create the controller state directory and compute spool directories
+    with the correct ownership.
+-   Do not enable accounting enforcement until accounts and associations
+    have been created and verified.
+
+Distribute the exact same `slurm.conf` to every node:
+
+``` bash
+sudo scp /etc/slurm/slurm.conf \
+  root@slurm-worker01:/etc/slurm/slurm.conf
+sudo scp /etc/slurm/slurm.conf \
+  root@slurm-worker02:/etc/slurm/slurm.conf
+sudo scp /etc/slurm/slurm.conf \
+  root@slurm-worker03:/etc/slurm/slurm.conf
+```
+
+## 9. Configure cgroup resource controls
+
+Rocky Linux 9 normally uses cgroup v2. Check:
+
+``` bash
+stat -fc %T /sys/fs/cgroup
+```
+
+Expected output:
+
+``` text
+cgroup2fs
+```
+
+Create `/etc/slurm/cgroup.conf` on the controller and compute nodes:
+
+``` ini
+CgroupPlugin=autodetect
+ConstrainCores=yes
+ConstrainRAMSpace=yes
+ConstrainDevices=yes
+```
+
+Check that the installed Slurm build supports the configured cgroup
+plugin and that the operating system's systemd/cgroup configuration is
+compatible.
+
+Cgroups help enforce resource boundaries for CPU, memory, and devices.
+They are important for preventing one job from consuming resources
+allocated to another.
+
+## 10. Configure NVIDIA GPU GRES
+
+Install a supported NVIDIA driver on GPU compute nodes. Confirm the
+driver and NVML library are available:
+
+``` bash
+nvidia-smi
+nvidia-smi -L
+nvidia-smi --query-gpu=name,memory.total,driver_version \
+  --format=csv
+```
+
+Create `/etc/slurm/gres.conf` on each GPU worker:
+
+``` ini
+AutoDetect=nvml
+```
+
+For manually configured devices, use the correct device files and GPU
+indices for that host. Do not copy a guessed device mapping across
+different GPU models or MIG layouts.
+
+Verify:
+
+``` bash
+sudo slurmd -G
+```
+
+Then inspect the controller's node view:
+
+``` bash
+sinfo -N -o "%N %P %G %T"
+scontrol show node slurm-worker02
+```
+
+GRES means Generic Resource Scheduling. It allows Slurm to allocate GPUs
+and other consumable resources to jobs.
+
+**MIG note:** MIG configuration changes the visible GPU resource
+topology. Configure Slurm GRES according to the actual MIG instances and
+the GPU/MIG support of your Slurm and NVIDIA stack. Do not assume
+`Gres=gpu:1` represents every MIG instance.
+
+## 11. Configure MariaDB and SlurmDBD accounting
+
+Accounting stores historical jobs, usage, associations, accounts, and
+QOS information. It is separate from the basic controller/worker
+execution path.
+
+### 11.1 Start MariaDB
+
+On the database host (the controller in this lab):
+
+``` bash
+sudo systemctl enable --now mariadb
+sudo systemctl status mariadb
+sudo mariadb-secure-installation
+```
+
+### 11.2 Create the accounting database
+
+Open MariaDB:
+
+``` bash
+sudo mariadb
+```
+
+Example SQL:
+
+``` sql
+CREATE DATABASE slurm_acct_db;
+
+CREATE USER 'slurm'@'localhost'
+IDENTIFIED BY 'REPLACE_WITH_A_LONG_RANDOM_SECRET';
+
+GRANT ALL PRIVILEGES ON slurm_acct_db.*
+TO 'slurm'@'localhost';
+
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+If MariaDB is on a separate host, create a narrowly scoped database user
+for the SlurmDBD host rather than using `localhost` or a broad wildcard.
+Protect credentials and network access.
+
+### 11.3 Create `/etc/slurm/slurmdbd.conf`
+
+``` ini
+AuthType=auth/munge
+
+DbdHost=slurm-master
+DbdPort=6819
+
+SlurmUser=slurm
+DebugLevel=info
+LogFile=/var/log/slurm/slurmdbd.log
+
+StorageType=accounting_storage/mysql
+StorageHost=localhost
+StoragePort=3306
+StorageUser=slurm
+StoragePass=REPLACE_WITH_THE_SAME_DATABASE_SECRET
+StorageLoc=slurm_acct_db
+```
+
+Set strict permissions:
+
+``` bash
+sudo chown slurm:slurm /etc/slurm/slurmdbd.conf
+sudo chmod 600 /etc/slurm/slurmdbd.conf
+
+sudo touch /var/log/slurm/slurmdbd.log
+sudo chown slurm:slurm /var/log/slurm/slurmdbd.log
+```
+
+The database password must match the account created in MariaDB. Keep
+the file readable only by the required privileged service identity.
+
+### 11.4 Configure accounting in `slurm.conf`
+
+Ensure the controller configuration contains:
+
+``` ini
+AccountingStorageType=accounting_storage/slurmdbd
+AccountingStorageHost=slurm-master
 AccountingStoragePort=6819
 ```
 
-SlurmDBD configuration file:
+For initial bring-up, do not turn on strict association/limit
+enforcement before the account structure is ready.
 
-```bash
-/etc/slurm/slurmdbd.conf
+### 11.5 Start services in a controlled order
+
+On the controller:
+
+``` bash
+sudo systemctl enable --now mariadb
+sudo systemctl enable --now munge
+sudo systemctl enable --now slurmdbd
+sudo systemctl status slurmdbd
 ```
 
-Important: This file contains database credentials. Keep it restricted to the Slurm service account and never commit it to GitHub.
+Register the cluster using `sacctmgr` after SlurmDBD is reachable:
 
-Check service:
-
-```bash
-systemctl status slurmdbd
+``` bash
+sudo sacctmgr add cluster rocky-ai-hpc
+sacctmgr list cluster
 ```
 
-Check cluster registration:
+Then start the controller:
 
-```bash
-sacctmgr show cluster
+``` bash
+sudo systemctl enable --now slurmctld
+sudo systemctl status slurmctld
 ```
 
-View accounts and associations:
+On each compute node:
 
-```bash
-sacctmgr show account
-sacctmgr show associations
+``` bash
+sudo systemctl enable --now munge
+sudo systemctl enable --now slurmd
+sudo systemctl status slurmd
 ```
 
-View job accounting:
+Inspect logs:
 
-```bash
-sacct -j JOBID \
-  --format=JobID,JobName,User,Account,State,ExitCode,Elapsed
+``` bash
+sudo journalctl -u slurmdbd -f
+sudo journalctl -u slurmctld -f
+sudo journalctl -u slurmd -f
 ```
 
-Generate utilization reports:
+## 12. Network and firewall
 
-```bash
-sreport cluster utilization \
-  start=2026-11-06 end=2026-11-07
+Default Slurm ports:
+
+        Port Service                  Use
+  ---------- ------------------------ -----------------------------------------
+    TCP 6817 `slurmctld`              Controller communication
+    TCP 6818 `slurmd`                 Compute daemon communication
+    TCP 6819 `slurmdbd`               Accounting daemon
+    TCP 3306 MariaDB                  Database access; restrict to DB clients
+    TCP 9100 Node Exporter            Node metrics
+    TCP 9101 Example Slurm exporter   Scheduler metrics
+    TCP 9400 DCGM Exporter            GPU metrics
+    TCP 9090 Prometheus               Metrics UI/API
+    TCP 3000 Grafana                  Dashboard UI
+
+Example controller firewall rules:
+
+``` bash
+sudo firewall-cmd --permanent --add-port=6817/tcp
+sudo firewall-cmd --permanent --add-port=6819/tcp
+sudo firewall-cmd --permanent --add-port=3306/tcp
+sudo firewall-cmd --reload
 ```
 
----
+Example compute-node rules:
 
-## 13. Job dependencies
-
-Job dependencies allow one job to wait for another job to finish.
-
-Example workflow:
-
-```text
-Job A: Data preparation
-          |
-          | afterok
-          v
-Job B: Data processing
-          |
-          | afterok
-          v
-Job C: Report generation
+``` bash
+sudo firewall-cmd --permanent --add-port=6818/tcp
+sudo firewall-cmd --reload
 ```
 
-Submit Job A:
+These are illustrative port openings, not a complete security policy.
+Restrict source addresses to the management, compute, and monitoring
+networks. Open exporter and UI ports only where required. If using a
+separate database host, permit only the SlurmDBD host to reach MariaDB.
 
-```bash
-JOB_A=$(sbatch --parsable 01-data-preparation.sh)
+## 13. Verify the cluster
+
+From the controller or login node:
+
+``` bash
+srun --version
+sinfo
+sinfo -N -l
+scontrol show nodes
+scontrol show partition
 ```
 
-Submit Job B:
+Check services:
 
-```bash
-JOB_B=$(sbatch --parsable \
-  --dependency=afterok:$JOB_A \
-  02-data-processing.sh)
-```
-
-Submit Job C:
-
-```bash
-JOB_C=$(sbatch --parsable \
-  --dependency=afterok:$JOB_B \
-  03-report-generation.sh)
-```
-
-Monitor:
-
-```bash
-squeue
-```
-
-Review:
-
-```bash
-sacct -j "$JOB_A","$JOB_B","$JOB_C" \
-  --format=JobID,JobName,State,ExitCode,Elapsed
-```
-
-Dependency types:
-
-| Dependency | Meaning |
-|---|---|
-| `after` | Wait until the specified job has started |
-| `afterok` | Wait until the specified job completes successfully |
-| `afterany` | Wait until the specified job terminates |
-| `afternotok` | Wait until the specified job terminates unsuccessfully |
-| `singleton` | Wait for earlier jobs with the same name and user |
-
-### Actual lab result
-
-We successfully executed:
-
-| Job | Stage | Result |
-|---|---|---|
-| 30 | Data preparation | COMPLETED |
-| 31 | Data processing | COMPLETED |
-| 32 | Report generation | COMPLETED |
-
-The final report contained:
-
-```text
-HPC Processing Report
-
-Count=5
-Sum=515
-Average=103.00
-```
-
-All three jobs completed with exit code `0:0`.
-
----
-
-## 14. Slurm job arrays
-
-Job arrays allow users to submit multiple similar tasks through one submission.
-
-Example:
-
-```bash
-sbatch --array=1-5 process-dataset.sh
-```
-
-Limit concurrent tasks:
-
-```bash
-sbatch --array=1-5%2 process-dataset.sh
-```
-
-Here:
-
-- `1-5` creates five tasks.
-- `%2` allows a maximum of two concurrent tasks.
-
-Each task receives its own array index.
-
-Example script:
-
-```bash
-#!/bin/bash
-
-TASK_ID=$SLURM_ARRAY_TASK_ID
-
-BASE=$((TASK_ID * 100))
-
-echo "Array Job: $SLURM_ARRAY_JOB_ID"
-echo "Task ID: $TASK_ID"
-echo "Node: $(hostname)"
-
-for i in {1..5}; do
-    echo $((BASE + i))
-done
-```
-
-Important environment variables:
-
-| Variable | Description |
-|---|---|
-| `SLURM_ARRAY_JOB_ID` | Parent array job ID |
-| `SLURM_ARRAY_TASK_ID` | Individual task index |
-| `SLURM_ARRAY_TASK_COUNT` | Total number of array tasks |
-| `SLURM_JOB_ID` | Job identifier |
-
-Monitor array tasks:
-
-```bash
-squeue -u hpcuser
-```
-
-View accounting:
-
-```bash
-sacct -j ARRAY_JOB_ID \
-  --format=JobID,JobName,State,ExitCode,Elapsed,NodeList
-```
-
-### Actual lab result
-
-We submitted five tasks:
-
-```bash
-sbatch --array=1-5%2 process-dataset.sh
-```
-
-Slurm assigned array job ID `33`.
-
-All five tasks completed successfully:
-
-| Task | Job ID | State |
-|---|---|---|
-| 1 | 33_1 | COMPLETED |
-| 2 | 33_2 | COMPLETED |
-| 3 | 33_3 | COMPLETED |
-| 4 | 33_4 | COMPLETED |
-| 5 | 33_5 | COMPLETED |
-
-Each task executed on `node01`.
-
-This is useful for parameter sweeps, independent simulations, batch preprocessing, and ML experiments.
-
----
-
-## 15. Important operational considerations
-
-### User consistency
-
-Linux user accounts should have consistent UID and GID values across cluster nodes.
-
-Example:
-
-```bash
-id hpcuser
-```
-
-### SSH connectivity
-
-For administrative and operational workflows:
-
-```bash
-ssh node01 hostname
-```
-
-SSH keys can simplify trusted administrative connectivity. Use appropriate access controls rather than enabling unrestricted root access.
-
-### Filesystem considerations
-
-Our lab uses local filesystems, not shared storage.
-
-Therefore:
-
-- Job scripts are submitted from `master`.
-- Jobs execute on `node01`.
-- Runtime output files are created on `node01`.
-- Data required by jobs must be available on the compute node.
-
-For production HPC environments, shared storage is commonly used.
-
-### Configuration consistency
-
-Keep `/etc/slurm/slurm.conf` consistent across nodes.
-
-Check:
-
-```bash
-sha256sum /etc/slurm/slurm.conf
-```
-
-### Service validation
-
-Controller:
-
-```bash
+``` bash
+systemctl status munge
 systemctl status slurmctld
 systemctl status slurmdbd
 ```
 
-Compute node:
+On each compute node:
 
-```bash
+``` bash
 systemctl status slurmd
 ```
 
----
+If a node is not available, inspect its daemon logs and compare its
+local configuration, CPU count, memory, GRES, Munge key, and Slurm
+version with the controller.
 
-## 16. Slurm command cheat sheet
+## 14. Configure users and accounts
 
-| Task | Command |
-|---|---|
-| Check cluster | `sinfo` |
-| Check nodes | `sinfo -N -l` |
-| Submit batch job | `sbatch job.sh` |
-| Run interactive job | `srun hostname` |
-| View jobs | `squeue` |
-| View user jobs | `squeue -u hpcuser` |
-| Cancel job | `scancel JOBID` |
-| Inspect job | `scontrol show job JOBID` |
-| Inspect node | `scontrol show node node01` |
-| View accounting | `sacct -j JOBID` |
-| View priority | `sprio` |
-| View accounts | `sacctmgr show account` |
-| View utilization | `sreport cluster utilization` |
-| Submit job array | `sbatch --array=1-10 job.sh` |
-| Submit dependent job | `sbatch --dependency=afterok:JOBID job.sh` |
+Create a training account:
 
----
+``` bash
+sudo sacctmgr add account ai-lab \
+  Description="AI and HPC Training Account" \
+  Organization=training
+```
 
-## 17. Practical learning outcomes
+Create a user association:
 
-Through this lab, we successfully demonstrated:
+``` bash
+sudo sacctmgr add user USERNAME Account=ai-lab
+```
 
-- Two-node Slurm cluster operation.
-- MUNGE authentication between nodes.
-- Controller and compute-node services.
-- Partition configuration and scheduling.
-- Interactive and batch job execution.
-- CPU and memory resource allocation.
-- Multifactor job prioritization.
-- SlurmDBD and MariaDB accounting.
-- Job dependencies and sequential workflows.
-- Job arrays with concurrent task limits.
-- Job monitoring and accounting validation.
+Replace `USERNAME` with a real Linux user provisioned consistently on
+the login and compute nodes.
 
-The lab used a CPU-only compute node. GPU scheduling, GPU resource configuration, and NVIDIA workload execution are not yet validated in this environment.
+Inspect:
 
----
+``` bash
+sacctmgr show account
+sacctmgr show user
+sacctmgr show assoc
+```
 
-## 18. Conclusion
+For a multi-user environment, configure accounts, associations, QOS,
+fair-share, job limits, and access controls deliberately. Test
+enforcement with non-administrator accounts.
 
-Slurm is an important platform for managing HPC workloads, from traditional scientific computing to AI and machine learning workloads.
+## 15. Submit the first CPU job
 
-Understanding job scheduling, resource allocation, accounting, dependencies, and arrays provides a strong foundation for building and operating HPC clusters.
+Create a working directory:
 
-This hands-on project demonstrates the core Slurm workload-management concepts using Rocky Linux 9.
+``` bash
+mkdir -p ~/slurm-jobs
+cd ~/slurm-jobs
+```
 
-**Next learning topics:**
+Create `cpu-job.sh`:
 
-1. GPU scheduling with Slurm and NVIDIA GPUs.
-2. Slurm GRES configuration.
-3. Multi-node MPI workloads.
-4. Prometheus and Grafana monitoring.
-5. Slurm and Kubernetes integration.
-6. Production HPC cluster deployment using Ansible.
+``` bash
+#!/bin/bash
+#SBATCH --job-name=cpu-test
+#SBATCH --partition=cpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=4G
+#SBATCH --time=00:05:00
+#SBATCH --output=cpu-%j.out
+#SBATCH --error=cpu-%j.err
 
----
+echo "SLURM CPU JOB"
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Node: $(hostname)"
+echo "CPUs: ${SLURM_CPUS_PER_TASK}"
+date
+sleep 30
+date
+echo "CPU job completed"
+```
 
-## Lab environment
+Submit and monitor:
 
-- OS: Rocky Linux 9.8
-- Slurm: 22.05.11
-- Cluster: hpc-lab
-- Controller: master
-- Compute node: node01
-- Partition: compute
+``` bash
+sbatch cpu-job.sh
+squeue -u "$USER"
+```
 
-*This article documents a practical learning lab. Production deployments require additional security, high availability, shared storage, capacity planning, and operational validation.*
+Inspect the output:
+
+``` bash
+cat cpu-JOBID.out
+```
+
+Inspect accounting:
+
+``` bash
+sacct -j JOBID \
+  --format=JobID,JobName,Partition,State,Elapsed,AllocCPUS,MaxRSS,ExitCode
+```
+
+Replace `JOBID` with the job number returned by `sbatch`.
+
+## 16. Interactive execution with `srun` and `salloc`
+
+Run a one-off command through Slurm:
+
+``` bash
+srun \
+  --partition=cpu \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=4 \
+  --mem=8G \
+  hostname
+```
+
+Request an interactive allocation:
+
+``` bash
+salloc \
+  --partition=cpu \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=4 \
+  --mem=8G
+```
+
+Inside the allocation:
+
+``` bash
+srun hostname
+```
+
+Run the interactive application or debugging commands, then exit the
+allocation when finished.
+
+-   `sbatch`: submit a batch script.
+-   `srun`: launch a command or job step.
+-   `salloc`: obtain an allocation, often for interactive work.
+
+## 17. Submit NVIDIA GPU jobs
+
+### 17.1 Verify GPU nodes
+
+On each GPU worker:
+
+``` bash
+nvidia-smi
+nvidia-smi -L
+```
+
+Check Slurm's view:
+
+``` bash
+sudo slurmd -G
+```
+
+From the controller:
+
+``` bash
+sinfo -N -o "%N %P %G %T"
+```
+
+### 17.2 Create a GPU validation job
+
+Create `gpu-test.sh`:
+
+``` bash
+#!/bin/bash
+#SBATCH --job-name=gpu-test
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --gres=gpu:1
+#SBATCH --time=00:15:00
+#SBATCH --output=gpu-%j.out
+#SBATCH --error=gpu-%j.err
+
+echo "SLURM GPU JOB"
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Node: $(hostname)"
+echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
+
+nvidia-smi
+echo "GPU validation completed"
+```
+
+Submit:
+
+``` bash
+sbatch gpu-test.sh
+squeue -u "$USER"
+```
+
+Inspect the job:
+
+``` bash
+scontrol show job JOBID
+cat gpu-JOBID.out
+```
+
+### 17.3 PyTorch GPU workload
+
+Prepare a Python environment on the GPU nodes, or make a compatible
+environment available through shared storage or a supported container
+runtime. Ensure the PyTorch CUDA build is compatible with the host
+NVIDIA driver.
+
+Create `pytorch-gpu.py`:
+
+``` python
+import time
+import torch
+
+print("PyTorch:", torch.__version__)
+print("CUDA available:", torch.cuda.is_available())
+
+if not torch.cuda.is_available():
+    raise RuntimeError("CUDA GPU is not available")
+
+device = torch.device("cuda:0")
+print("GPU:", torch.cuda.get_device_name(0))
+
+a = torch.randn(4096, 4096, device=device)
+b = torch.randn(4096, 4096, device=device)
+
+start = time.time()
+for _ in range(100):
+    c = torch.matmul(a, b)
+
+torch.cuda.synchronize()
+
+print("Result shape:", tuple(c.shape))
+print("Execution time:", time.time() - start)
+```
+
+Create `pytorch-gpu-job.sh`:
+
+``` bash
+#!/bin/bash
+#SBATCH --job-name=pytorch-training
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --gres=gpu:1
+#SBATCH --time=00:30:00
+#SBATCH --output=pytorch-%j.out
+
+source /opt/ai-env/bin/activate
+python pytorch-gpu.py
+```
+
+Submit:
+
+``` bash
+sbatch pytorch-gpu-job.sh
+```
+
+The environment path `/opt/ai-env` is an example. Create and validate it
+before submitting the job.
+
+### 17.4 Request multiple GPUs
+
+For a worker with two configured GPUs:
+
+``` bash
+sbatch \
+  --partition=gpu \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=16 \
+  --gres=gpu:2 \
+  pytorch-gpu-job.sh
+```
+
+A multi-node distributed training job additionally needs a distributed
+execution strategy, task layout, rendezvous configuration, compatible
+NCCL/MPI libraries, and high-speed networking. A multi-GPU allocation
+alone does not automatically distribute a model across nodes.
+
+## 18. Prometheus and Grafana monitoring architecture
+
+Monitor three distinct areas:
+
+1.  Linux infrastructure: CPU, memory, disk, and network.
+2.  Slurm: node states, queue, jobs, scheduler, and allocations.
+3.  NVIDIA: GPU utilization, memory, temperature, power, and device
+    health.
+
+::: slurm-diagram
+<div>
+
+    <span class="slurm-node"><strong>Node Exporter</strong><br><small>OS metrics</small></span>
+    <span class="slurm-node"><strong>Slurm Exporter</strong><br><small>Queue and scheduler</small></span>
+    <span class="slurm-node"><strong>DCGM Exporter</strong><br><small>NVIDIA telemetry</small></span>
+
+</div>
+
+::: slurm-arrow
+↓ scrape
+:::
+
+::: {.slurm-node .slurm-controller}
+`<strong>`{=html}Prometheus`</strong>`{=html}`<br>`{=html}`<small>`{=html}Scraping
+· time series · alert rules`</small>`{=html}
+:::
+
+::: slurm-arrow
+↓ query
+:::
+
+::: {.slurm-node .slurm-monitor}
+`<strong>`{=html}Grafana`</strong>`{=html}`<br>`{=html}`<small>`{=html}HPC
+and AI dashboards`</small>`{=html}
+:::
+:::
+
+### 18.1 Monitoring coverage
+
+  -----------------------------------------------------------------------
+  Area                                Useful measurements
+  ----------------------------------- -----------------------------------
+  Cluster                             Total, idle, allocated, down, and
+                                      drained nodes
+
+  Scheduler                           Pending/running jobs, queue length,
+                                      scheduling statistics
+
+  CPU                                 Utilization, allocated CPUs, idle
+                                      CPUs
+
+  Memory                              Total, available, allocated, and
+                                      job memory
+
+  GPU                                 Utilization, framebuffer memory,
+                                      temperature, power
+
+  Accounting                          Job duration, exit code, CPU time,
+                                      user/account usage
+
+  Network                             Throughput, errors, interface state
+
+  Services                            Controller, database, Munge, and
+                                      exporter availability
+  -----------------------------------------------------------------------
+
+### 18.2 Install Node Exporter
+
+Install a version-pinned official Prometheus Node Exporter release on
+all nodes. Create the service account:
+
+``` bash
+sudo useradd --system --no-create-home \
+  --shell /sbin/nologin node_exporter
+```
+
+Install the verified release binary as:
+
+``` text
+/usr/local/bin/node_exporter
+```
+
+Create `/etc/systemd/system/node_exporter.service`:
+
+``` ini
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/node_exporter
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Start and verify:
+
+``` bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now node_exporter
+curl -s http://localhost:9100/metrics | head
+```
+
+Repeat on every node.
+
+### 18.3 Install a Slurm exporter
+
+A community option is `prometheus-slurm-exporter`:
+
+https://github.com/vpenso/prometheus-slurm-exporter
+
+It collects information from Slurm client commands. Review its supported
+Slurm versions, release notes, metric names, permissions, and build
+instructions before deployment.
+
+The exporter must be able to run the required Slurm CLI commands and
+authenticate with Munge. Run it with a dedicated least-privilege service
+account where possible.
+
+Example endpoint:
+
+``` bash
+curl -s http://localhost:9101/metrics | head
+```
+
+Do not poll the controller excessively. Start with a 30-second scrape
+interval and observe controller load.
+
+### 18.4 Install NVIDIA DCGM Exporter
+
+Use NVIDIA's supported DCGM and DCGM Exporter versions for the installed
+GPU driver and operating system.
+
+DCGM Exporter commonly exposes Prometheus metrics on TCP port `9400`.
+
+Validate the service and endpoint:
+
+``` bash
+systemctl status nvidia-dcgm-exporter
+curl -s http://localhost:9400/metrics | head
+```
+
+Install and configure the exporter on GPU workers. Follow NVIDIA's
+current installation instructions rather than assuming a package name or
+service unit is identical across releases.
+
+Documentation: https://docs.nvidia.com/datacenter/dcgm/latest/
+
+### 18.5 Prometheus scrape configuration
+
+Create `prometheus.yml`:
+
+``` yaml
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - slurm-master:9100
+          - slurm-worker01:9100
+          - slurm-worker02:9100
+          - slurm-worker03:9100
+
+  - job_name: slurm-exporter
+    scrape_interval: 30s
+    scrape_timeout: 30s
+    static_configs:
+      - targets:
+          - slurm-master:9101
+
+  - job_name: dcgm-exporter
+    static_configs:
+      - targets:
+          - slurm-worker02:9400
+          - slurm-worker03:9400
+```
+
+Validate the file with `promtool check config prometheus.yml` using the
+matching Prometheus release. Deploy Prometheus as a version-pinned
+service or container with persistent storage and access to the exporter
+endpoints.
+
+Open:
+
+``` text
+http://slurm-master:9090/targets
+```
+
+All expected targets should show `UP`.
+
+### 18.6 Grafana deployment
+
+For a lab, Grafana can be deployed with Docker Compose. Pin an approved
+image version and persist its data.
+
+Example `compose.yaml`:
+
+``` yaml
+services:
+  grafana:
+    image: grafana/grafana:PINNED_VERSION
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  grafana-data:
+```
+
+Replace `PINNED_VERSION` with a real approved version before running:
+
+``` bash
+docker compose up -d
+```
+
+Open:
+
+``` text
+http://slurm-master:3000
+```
+
+Add Prometheus as a Grafana data source:
+
+``` text
+http://slurm-master:9090
+```
+
+Secure Grafana with authentication, TLS/reverse proxy as appropriate,
+and restricted network access.
+
+### 18.7 Example PromQL
+
+Metric names depend on exporter versions and configuration. Inspect each
+endpoint's `/metrics` output and adapt queries to the actual labels.
+
+  ----------------------------------------------------------------------------------------------------------------------
+  Dashboard panel                     Example PromQL
+  ----------------------------------- ----------------------------------------------------------------------------------
+  Node CPU utilization                `100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+
+  Available memory                    `node_memory_MemAvailable_bytes`
+
+  GPU utilization                     `DCGM_FI_DEV_GPU_UTIL`
+
+  GPU framebuffer memory used         `DCGM_FI_DEV_FB_USED`
+
+  GPU temperature                     `DCGM_FI_DEV_GPU_TEMP`
+  ----------------------------------------------------------------------------------------------------------------------
+
+For Slurm job-state metrics, use the exact metric and label names
+exposed by the installed exporter. Do not assume all exporters expose
+`slurm_job_state{state="RUNNING"}`.
+
+### 18.8 Recommended Grafana dashboard panels
+
+-   Node status: idle, allocated, down, drain.
+-   CPU utilization by host.
+-   Allocated and available memory by host.
+-   Pending, running, completed, and failed jobs.
+-   Job queue by partition and user.
+-   GPU allocation by compute node.
+-   GPU utilization and memory usage.
+-   GPU temperature and power.
+-   Network throughput and errors.
+-   Controller, database, and exporter health.
+
+## 19. End-to-end validation checklist
+
+  -------------------------------------------------------------------------------
+  Test                    Command/check                   Expected outcome
+  ----------------------- ------------------------------- -----------------------
+  Host resolution         `getent hosts slurm-worker01`   Correct IP returned
+
+  Time synchronization    `chronyc tracking`              Clock synchronized
+
+  Munge                   `munge -n \| unmunge`           Success
+
+  Controller              `systemctl status slurmctld`    Active
+
+  Worker daemon           `systemctl status slurmd`       Active
+
+  Node registration       `sinfo -N -l`                   Nodes visible
+
+  CPU job                 `sbatch cpu-job.sh`             Job completes
+
+  GPU detection           `slurmd -G`                     GPU GRES detected
+
+  GPU job                 `sbatch gpu-test.sh`            GPU allocated
+
+  Accounting              `sacct -j JOBID`                Historical record
+                                                          available
+
+  Node exporter           `curl localhost:9100/metrics`   Metrics returned
+
+  Slurm exporter          `curl localhost:9101/metrics`   Metrics returned
+
+  DCGM exporter           `curl localhost:9400/metrics`   GPU metrics returned
+
+  Prometheus              `/targets`                      Targets UP
+
+  Grafana                 Dashboard query                 Metrics visualized
+  -------------------------------------------------------------------------------
+
+## 20. Troubleshooting
+
+  ---------------------------------------------------------------------------------
+  Problem                 Possible cause             First checks
+  ----------------------- -------------------------- ------------------------------
+  Node DOWN               `slurmd` unavailable,      `systemctl status slurmd`;
+                          network or config mismatch worker logs
+
+  Node DRAIN              Admin action or node       `scontrol show node`
+                          health/configuration issue 
+
+  Munge authentication    Key, ownership,            `munge -n \| unmunge`;
+  error                   permissions, time          `journalctl -u munge`
+
+  Job pending             Resources unavailable or   `squeue -j JOBID -o "%R"`
+                          policy constraints         
+
+  GPU missing             GRES/NVML/device           `nvidia-smi`; `slurmd -G`
+                          configuration              
+
+  GPU job fails           Driver/runtime/library     `nvidia-smi`; job output
+                          mismatch                   
+
+  No accounting records   SlurmDBD or database issue `systemctl status slurmdbd`;
+                                                     logs
+
+  Controller will not     Invalid config, missing    `journalctl -u slurmctld`
+  start                   directory/plugin           
+
+  Exporter target DOWN    Firewall, service,         `curl HOST:PORT/metrics`
+                          routing, or bind address   
+
+  Grafana has no data     Prometheus                 Prometheus `/targets` and
+                          target/query/data-source   query UI
+                          issue                      
+  ---------------------------------------------------------------------------------
+
+Useful administrative commands:
+
+``` bash
+# Nodes and partitions
+sinfo -N -l
+scontrol show node slurm-worker01
+scontrol show partition
+
+# Jobs and scheduler
+squeue -a
+sdiag
+
+# Accounting and reports
+sacct
+sreport cluster utilization
+
+# Running job statistics
+sstat -j JOBID
+
+# Drain a node for maintenance
+sudo scontrol update NodeName=slurm-worker01 \
+  State=DRAIN Reason="Maintenance"
+
+# Return a node to service after resolving the issue
+sudo scontrol update NodeName=slurm-worker01 State=RESUME
+
+# Reconfigure the controller after supported config changes
+sudo scontrol reconfigure
+```
+
+## 21. Production-readiness recommendations
+
+  -----------------------------------------------------------------------
+  Layer                   Recommended technology  Purpose
+  ----------------------- ----------------------- -----------------------
+  Operating system        Rocky Linux 9           Compute operating
+                                                  system
+
+  Scheduler               Slurm                   Job scheduling and
+                                                  resource allocation
+
+  Authentication          Munge                   Cluster daemon
+                                                  authentication
+
+  Accounting              SlurmDBD + MariaDB      Historical
+                                                  job/accounting records
+
+  Shared storage          NFS, BeeGFS, or Lustre  Home directories,
+                                                  datasets, checkpoints
+
+  GPU                     NVIDIA driver and CUDA  Accelerated compute
+
+  GPU scheduling          Slurm GRES              GPU allocation
+
+  GPU telemetry           DCGM Exporter           Device metrics
+
+  Infrastructure          Node Exporter           OS metrics
+  telemetry                                       
+
+  Scheduler telemetry     Slurm exporter          Queue and scheduler
+                                                  metrics
+
+  Metrics storage         Prometheus              Time-series monitoring
+
+  Visualization           Grafana                 Dashboards and alerts
+
+  User environments       Environment Modules     Python, CUDA, MPI
+                                                  environments
+
+  Identity                LDAP or Active          Centralized identity
+                          Directory               
+  -----------------------------------------------------------------------
+
+Additional recommendations:
+
+**High availability:** Configure primary and backup Slurm controllers,
+shared controller state, and a tested failover procedure.
+
+**Shared storage:** Provide appropriate shared storage for home
+directories, datasets, model checkpoints, and software environments. Not
+every Slurm workload requires shared storage.
+
+**Fair-share:** Configure accounts, associations, QOS, priorities, and
+limits so that users share cluster resources according to policy.
+
+**GPU partitioning:** Use GRES for GPU scheduling. Evaluate NVIDIA MIG
+for supported GPUs and configure Slurm according to the actual device
+topology.
+
+**Security:** Restrict management ports, protect Munge keys and database
+credentials, use least-privilege service accounts, enforce cgroup
+resource limits, and secure monitoring endpoints.
+
+**Backup and recovery:** Back up MariaDB, Slurm configuration,
+controller state, and user data. Regularly test restore and failover
+procedures.
+
+## 22. Instructor-led training curriculum
+
+  -----------------------------------------------------------------------
+  Lab                     Topic                   Practical outcome
+  ----------------------- ----------------------- -----------------------
+  01                      HPC and Slurm           Understand the
+                          fundamentals            scheduler
+
+  02                      Rocky Linux 9           Prepare controller and
+                          preparation             workers
+
+  03                      Munge and Slurm         Establish trusted
+                          configuration           cluster communication
+
+  04                      MariaDB and SlurmDBD    Enable job accounting
+
+  05                      CPU job scheduling      Submit, inspect, and
+                                                  account for CPU jobs
+
+  06                      NVIDIA GPU integration  Submit and validate GPU
+                                                  jobs
+
+  07                      Prometheus and Grafana  Monitor infrastructure,
+                                                  jobs, and GPUs
+
+  08                      Production              Troubleshooting, QOS,
+                          administration          HA, and operations
+  -----------------------------------------------------------------------
+
+## 23. Final architecture summary
+
+The platform has four logical layers:
+
+1.  **Access layer:** Login node, SSH, Slurm CLI, user environments.
+2.  **Management layer:** `slurmctld`, `slurmdbd`, MariaDB, scheduling,
+    accounting.
+3.  **Compute layer:** Rocky Linux workers, CPU, RAM, NVIDIA GPU, CUDA,
+    PyTorch, MPI.
+4.  **Monitoring layer:** Node Exporter, Slurm Exporter, DCGM Exporter,
+    Prometheus, Grafana.
+
+::: {.slurm-callout .slurm-success}
+`<strong>`{=html}Recommended implementation
+approach`</strong>`{=html}`<br>`{=html} Automate this environment with
+Ansible roles for common OS preparation, Munge, controller, compute
+nodes, GPU configuration, accounting, and monitoring. Pin software
+versions and keep secrets in Ansible Vault or another secrets manager.
+Validate each layer before moving to the next.
+:::
+
+## 24. Official documentation and project references
+
+-   Slurm documentation: https://slurm.schedmd.com/documentation.html
+-   Slurm administrator quick start:
+    https://slurm.schedmd.com/quickstart_admin.html
+-   Slurm GRES and GPU scheduling: https://slurm.schedmd.com/gres.html
+-   Slurm cgroup configuration:
+    https://slurm.schedmd.com/cgroup.conf.html
+-   Slurm accounting: https://slurm.schedmd.com/accounting.html
+-   OpenHPC: https://openhpc.community/
+-   Prometheus: https://prometheus.io/docs/
+-   Node Exporter: https://github.com/prometheus/node_exporter
+-   Prometheus Slurm Exporter:
+    https://github.com/vpenso/prometheus-slurm-exporter
+-   NVIDIA DCGM: https://docs.nvidia.com/datacenter/dcgm/latest/
+-   NVIDIA DCGM Exporter: https://github.com/NVIDIA/dcgm-exporter
+
+------------------------------------------------------------------------
+
+**End of guide --- Slurm on Rocky Linux 9 for AI and HPC workloads.**
+:::
 
