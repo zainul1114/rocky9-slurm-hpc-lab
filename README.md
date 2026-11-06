@@ -3,6 +3,8 @@
 A hands-on High Performance Computing (HPC) learning project using
 Slurm Workload Manager on Rocky Linux 9.
 
+![SLURM](/diagrams/slurm-workflow.png)
+
 ## Lab Architecture
 
 | Component | Hostname | IP |
